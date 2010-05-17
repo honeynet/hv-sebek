@@ -1,0 +1,32 @@
+
+title		Ubuntu 9.04, kernel 2.6.28-11-generic
+root		(hd1,2)
+kernel		/boot/vmlinuz-2.6.28-11-generic root=UUID=fa26f779-733b-45d6-8cb3-c076936a4477 ro quiet splash 
+initrd		/boot/initrd.img-2.6.28-11-generic
+quiet
+
+### END DEBIAN AUTOMAGIC KERNELS LIST
+
+# This is a divider, added to separate the menu items below from the Debian
+# ones.
+title		Other operating systems:
+root
+
+
+# This entry automatically added by the Debian installer for a non-linux OS
+# on /dev/sda1
+title		Windows Vista (loader)
+rootnoverify	(hd1,0)
+savedefault
+makeactive
+chainloader	+1
+
+
+# This entry automatically added by the Debian installer for a non-linux OS
+# on /dev/sda4
+title		Windows Vista (loader)
+rootnoverify	(hd1,3)
+savedefault
+makeactive
+chainloader	+1
+

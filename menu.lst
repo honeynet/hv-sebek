@@ -1,0 +1,48 @@
+# menu.lst - See: grub(8), info grub, update-grub(8)
+#            grub-install(8), grub-floppy(8),
+#            grub-md5-crypt, /usr/share/doc/grub
+#            and /usr/share/doc/grub-doc/.
+default=1
+timeout=2
+
+title= MAVMM
+root=(hd0,0)
+kernel=/boot/mavmm
+boot
+
+title= TTY Linux
+root=(hd0,0)
+kernel=/boot/ttylinux/vmlinuz load_ramdisk=1 prompt_ramdisk=0 ramdisk_size=8192 root=/dev/ram0 ro
+#kernel=/boot/ttylinux/vmlinuz load_ramdisk=1 prompt_ramdisk=0 ramdisk_size=8192 root=/dev/ram0 ro mem=128m
+initrd=/boot/ttylinux/filesys.gz
+boot
+
+title=Tiny Core
+root=(hd0,0)
+kernel /boot/tinycore/bzImage quiet noapic
+initrd /boot/tinycore/tinycore.gz
+boot
+
+title= Test OS
+root=(hd0,0)
+kernel=/boot/testos
+boot
+
+title=Damn Small Linux-N
+root=(hd0,0)
+kernel=/isolinux/linux root=/dev/hda1 ro lang=us toram noeject frugal 2
+initrd=/isolinux/minirt.gz
+boot
+
+title= Puppy Linux
+root=(hd0,0)
+kernel=/vmlinuz root=/dev/ram0 PFILE=pup1-none-524288 PHOME=hda1
+#frugal ide=nodma acpi=off pfix=ram vga=normal
+initrd=/initrd.gz
+boot
+
+title= INSERT
+root=(hd0,0)
+kernel=/isolinux/vmlinuz root=/dev/hda1 ro lang=us toram noeject frugal 2
+initrd=/isolinux/miniroot.lz
+boot
