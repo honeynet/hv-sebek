@@ -1,8 +1,11 @@
 /********************************************************************************
- * Created and copyright by MAVMM project group:
- * 	Anh M. Nguyen, Nabil Schear, Apeksha Godiyal, HeeDong Jung, et al
- *  Distribution is prohibited without the authors' explicit permission
- ********************************************************************************/
+* This software is licensed under the GNU General Public License:
+* http://www.gnu.org/licenses/gpl.html
+*
+* MAVMM Project Group:
+* Anh M. Nguyen, Nabil Schear, Apeksha Godiyal, HeeDong Jung, et al
+*
+*********************************************************************************/
 
 #include "types.h"
 #include "failure.h"
@@ -59,7 +62,7 @@ void __init setup_memory_region ( struct e820_map *e820, const struct multiboot_
 
 	e820->nr_map = 0;
 
-	unsigned long p = 0;
+	u64 p = 0;
 	// go through memory_map entries in mbi, from mmap_addr to mmap_addr + mmap_length
 	while ( p < mbi->mmap_length )
 	{

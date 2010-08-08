@@ -22,7 +22,7 @@ if [ $? -ne 0 ]; then
     exit -1
 fi
 
-. ~/Desktop/Simnow.sh
+#. ~/Desktop/Simnow.sh
 
 #sudo ./mkdisk.sh mavmm.hdd kernel/mavmm kernel/elf-sos
 #sudo ./updatedisk.sh mavmm.hdd invaders/mbi-invaders boot/mbi-invaders

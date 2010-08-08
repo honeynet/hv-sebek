@@ -1,8 +1,11 @@
 /********************************************************************************
- * Created and copyright by MAVMM project group:
- * 	Anh M. Nguyen, Nabil Schear, Apeksha Godiyal, HeeDong Jung, et al
- *  Distribution is prohibited without the authors' explicit permission
- ********************************************************************************/
+* This software is licensed under the GNU General Public License:
+* http://www.gnu.org/licenses/gpl.html
+*
+* MAVMM Project Group:
+* Anh M. Nguyen, Nabil Schear, Apeksha Godiyal, HeeDong Jung, et al
+*
+*********************************************************************************/
 
 #include "types.h"
 #include "failure.h"
@@ -13,6 +16,7 @@
 #include "pmem_layout.h"
 #include "alloc.h"
 #include "cpu.h"
+#include "svm.h"
 #include "vm.h"
 #include "vmm.h"
 #include "serial.h"
@@ -84,15 +88,15 @@ void __init start_vmm ( const struct multiboot_info *mbi )
 	struct pmem_layout pml;
 	setup_memory(mbi, &opt, &pml);
 
-	outf("\n++++++ Enable SVM feature on CPU\n");
-	enable_amd_svm();
-
 	struct vm_info vm;
 	vm_create (&vm, pml.vmm_pmem_start, opt.vmm_pmem_size, &(pml.e820));
+
+	outf("\n++++++ New virtual machine created. Going to start the VM\n");
+	vm_init (&vm);
 
 	//Debug
 	//e820_print_map(&(pml.e820));
 
-	outf ("\n++++++ New virtual machine created. Going to GRUB for the 2nd time\n");
+	outf ("\n++++++ Going to GRUB for the 2nd time\n");
 	vm_boot (&vm);
 }

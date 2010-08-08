@@ -7,7 +7,7 @@
 
 #define __ASSEMBLY__
 
-#include "system.h"
+#include "cpu.h"
 
 #define SECTORS_PER_TRACK 	63
 #define NUM_HEADS			2

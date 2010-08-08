@@ -8,6 +8,18 @@ and perform actions based it */
 
 extern void handle_vmexit (struct vm_info *vm);
 
+/*
+extern void __handle_syscall ( struct vm_info *vm );
+extern void __handle_vm_npf (struct vm_info *vm);
+extern void __handle_vm_swint (struct vm_info *vm);
+extern void __handle_vm_iret (struct vm_info *vm);
+extern void __handle_vm_exception (struct vm_info *vm);
+extern void __handle_cr3_write (struct vm_info *vm);
+extern void __handle_popf (struct vm_info *vm);
+extern void __handle_vm_vmmcall (struct vm_info *vm);
+extern void __handle_vm_wrmsr (struct vm_info *vm);
+*/
+
 /* [REF] AMD64 manual Vol. 2, Appendix B */
 
 //Flags for CRn access interception

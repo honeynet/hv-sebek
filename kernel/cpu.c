@@ -1,8 +1,11 @@
 /********************************************************************************
- * Created and copyright by MAVMM project group:
- * 	Anh M. Nguyen, Nabil Schear, Apeksha Godiyal, HeeDong Jung, et al
- *  Distribution is prohibited without the authors' explicit permission
- ********************************************************************************/
+* This software is licensed under the GNU General Public License:
+* http://www.gnu.org/licenses/gpl.html
+*
+* MAVMM Project Group:
+* Anh M. Nguyen, Nabil Schear, Apeksha Godiyal, HeeDong Jung, et al
+*
+*********************************************************************************/
 
 #include "bitops.h"
 #include "string.h"
@@ -12,9 +15,9 @@
 #include "cpufeature.h"
 #include "svm.h"
 #include "cpu.h"
+//#include "vmx.h"
 
-static void
-display_cacheinfo ( struct cpuinfo_x86 *c )
+void display_cacheinfo ( struct cpuinfo_x86 *c )
 {
 	unsigned int n, dummy, eax, ebx, ecx, edx;
 
@@ -33,18 +36,24 @@ display_cacheinfo ( struct cpuinfo_x86 *c )
 	if (n >= 0x80000006)
 	{
 		cpuid(0x80000006, &dummy, &ebx, &ecx, &edx);
-		ecx = cpuid_ecx(0x80000006);
+		//ecx = cpuid_ecx(0x80000006);
 		c->x86_cache_size = ecx >> 16;
 		c->x86_tlbsize += ((ebx >> 16) & 0xfff) + (ebx & 0xfff);
 
 		outf("CPU: L2 Cache: %xK (%x bytes/line)\n", c->x86_cache_size, ecx & 0xFF);
 	}
 
-	if (n >= 0x80000007) cpuid(0x80000007, &dummy, &dummy, &dummy, &c->x86_power);
+	if (n >= 0x80000007) 
+	{
+		//cpuid(0x80000007, &dummy, &dummy, &dummy, &c->x86_power);
+		edx = cpuid_edx(0x80000007);
+		c->x86_power = edx;
+	}
 
 	if (n >= 0x80000008)
 	{
-		cpuid(0x80000008, &eax, &dummy, &dummy, &dummy);
+		//cpuid(0x80000008, &eax, &dummy, &dummy, &dummy);
+		eax = cpuid_eax(0x80000008);
 		c->x86_virt_bits = (eax >> 8) & 0xff;
 		c->x86_phys_bits = eax & 0xff;
 	}
@@ -70,13 +79,14 @@ get_cpu_vendor ( struct cpuinfo_x86 *c )
 
 	if ( ! strncmp ( c->x86_vendor_id, "AuthenticAMD", 12 ) ) {
 		c->x86_vendor = X86_VENDOR_AMD;
+	} else if ( ! strncmp ( c->x86_vendor_id, "GenuineIntel", 12 ) ) {
+		c->x86_vendor = X86_VENDOR_INTEL;
 	} else {
 		c->x86_vendor = X86_VENDOR_UNKNOWN;
 	}
 }
 
-static void
-early_identify_cpu ( struct cpuinfo_x86 *c )
+void early_identify_cpu ( struct cpuinfo_x86 *c )
 {
 	c->x86_cache_size = -1;
 	c->x86_vendor = X86_VENDOR_UNKNOWN;
@@ -106,13 +116,15 @@ early_identify_cpu ( struct cpuinfo_x86 *c )
 		u32 tfms;
 		u32 misc;
 		cpuid(0x00000001, &tfms, &misc, &c->x86_capability[4], &c->x86_capability[0]);
+
+		/* CPU signature, see Intel Processor Identification and the CPUID Instruction
+		 * Table 2-3 for detail
+		 */
 		c->x86 = (tfms >> 8) & 0xf;
 		c->x86_model = (tfms >> 4) & 0xf;
 		c->x86_mask = tfms & 0xf;
-		if (c->x86 == 0xf) {
+		if (c->x86 >= 6) {
 			c->x86 += (tfms >> 20) & 0xff;
-		}
-		if (c->x86 >= 0x6) {
 			c->x86_model += ((tfms >> 16) & 0xF) << 4;
 		}
 		if (c->x86_capability[0] & (1<<19)) {
@@ -144,74 +156,6 @@ early_identify_cpu ( struct cpuinfo_x86 *c )
 		if ( xlvl >= 0x80860001 ) {
 			c->x86_capability[2] = cpuid_edx(0x80860001);
 		}
-	}
-}
-
-static void __init_amd (struct cpuinfo_x86 *cpuinfo)
-{
-	/* Should distinguish Models here, but this is only a fallback anyways. */
-	strcpy (cpuinfo->x86_model_id, "Hammer");
-
-	/* AMD SVM architecture reference manual p. 81 */
-//	unsigned int n_asids = cpuid_edx (0x80000000);
-//	outf ( "The number of address space IDs: %x\n", n_asids );
-
-	//TODO: Need fix
-	// Anh : this is totally wrong
-	// func 0x80000000 is used to get manufacture ID, not feature flags
-	unsigned int np = cpuid_ebx(0x80000000) & 1;
-	if (!np) fatal_failure ("Nested paging is not supported.\n");
-}
-
-static void init_amd (struct cpuinfo_x86 *cpuinfo)
-{
-	//TODO: uncomment - check why it does not work on HP tx2500
-//	if (cpuinfo->x86 != 0xf) fatal_failure("Failed in init_amd\n");
-
-	/* Bit 31 in normal CPUID used for nonstandard 3DNow ID;
-	   3DNow is IDd by bit 31 in extended CPUID (1*32+31) anyway */
-	clear_bit (0*32+31, &cpuinfo->x86_capability);
-
-	/* On C+ stepping K8 rep microcode works well for copy/memset */
-	unsigned level = cpuid_eax (1);
-	if ( (level >= 0x0f48 && level < 0x0f50) || level >= 0x0f58)
-		set_bit (X86_FEATURE_REP_GOOD, &cpuinfo->x86_capability);
-
-	/* Enable workaround for FXSAVE leak */
-	set_bit (X86_FEATURE_FXSAVE_LEAK, &cpuinfo->x86_capability);
-
-//	int r = get_model_name ( c );
-//	if ( ! r ) {
-		__init_amd (cpuinfo);
-//	}
-
-	display_cacheinfo (cpuinfo);
-
-	//Anh - enable SVM, allocate a page for host state save area,
-	// and copy its address into MSR_K8_VM_HSAVE_PA MSR
-	enable_svm (cpuinfo);
-}
-
-
-// Identify CPU. Make sure that it is AMD with SVM feature
-// Allocate a page for host state save area and assign it to VM_HSAVE_PA MSR (vol 2 p 422)
-// Then enable SVM by setting its flag in EFER
-void __init enable_amd_svm ( void )
-{
-	struct cpuinfo_x86 cpuinfo;
-
-	early_identify_cpu (&cpuinfo);
-
-	switch (cpuinfo.x86_vendor)
-	{
-	case X86_VENDOR_AMD:
-		init_amd (&cpuinfo);
-		break;
-
-	case X86_VENDOR_UNKNOWN:
-	default:
-		fatal_failure ("Unknown CPU vendor\n");
-		break;
 	}
 }
 

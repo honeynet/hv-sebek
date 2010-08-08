@@ -1,37 +1,28 @@
 /********************************************************************************
- * Created and copyright by MAVMM project group:
- * 	Anh M. Nguyen, Nabil Schear, Apeksha Godiyal, HeeDong Jung, et al
- *  Distribution is prohibited without the authors' explicit permission
- ********************************************************************************/
+* This software is licensed under the GNU General Public License:
+* http://www.gnu.org/licenses/gpl.html
+*
+* MAVMM Project Group:
+* Anh M. Nguyen, Nabil Schear, Apeksha Godiyal, HeeDong Jung, et al
+*
+*********************************************************************************/
 
+#include "cpu.h"
 #include "string.h"
 #include "failure.h"
 #include "page.h"
 #include "msr.h"
 #include "vm.h"
 #include "svm.h"
+#include "vmx.h"
 #include "alloc.h"
-#include "vmexit.h"
 #include "vmm.h"
 #include "intercept.h"
 #include "serial.h"
 #include "types.h"
 #include "user.h"
-#include "system.h"
 
-static struct vmcb * alloc_vmcb ( void )
-{
-	struct vmcb *vmcb;
-
-	const unsigned long pfn = alloc_host_pages (1, 1);
-	//outf("Free page for vmcb: %x\n", pfn);
-	vmcb = (struct vmcb *) (pfn << PAGE_SHIFT);
-	memset (( char *) vmcb, 0, sizeof (struct vmcb));
-
-	return vmcb;
-}
-
-static unsigned long create_intercept_table ( unsigned long size )
+unsigned long create_intercept_table ( unsigned long size )
 {
 	const unsigned long pfn = alloc_host_pages ( size >> PAGE_SHIFT, 1 );
 	void *p = ( void * ) ( pfn << PAGE_SHIFT );
@@ -41,45 +32,6 @@ static unsigned long create_intercept_table ( unsigned long size )
 	memset ( p, 0x00, size );
 
 	return pfn << PAGE_SHIFT;
-}
-
-static void set_control_params (struct vmcb *vmcb)
-{
-	//Note: anything not set will be 0 (since vmcb was filled with 0)
-
-	/****************************** SVM CONFIGURATION *****************************/
-	/******************************************************************************/
-	/* Enable/disable nested paging (See AMD64 manual Vol. 2, p. 409) */
-	vmcb->np_enable = 1;
-	outf ("Nested paging enabled.\n");
-
-	// Anh - set this to 1 will make VMRUN to flush all TBL entries, regardless of ASID
-	// and global / non global property of pages
-    vmcb->tlb_control = 0;
-
-    //Anh - time stamp counter offset, to be added to guest RDTSC and RDTSCP instructions
-	/* To be added in RDTSC and RDTSCP */
-	vmcb->tsc_offset = 0;
-
-	//Guest address space identifier (ASID), must <> 0 - vol2 373
-	vmcb->guest_asid = 1;
-
-	/* Intercept the VMRUN and VMMCALL instructions */
-	//must intercept VMRUN at least vol2 373
-	vmcb->general2_intercepts = (INTRCPT_VMRUN | INTRCPT_VMMCALL);
-
-	//Anh - allocating a region for IOPM (permission map)
-	//and fill it with 0x00 (not intercepting anything)
-	vmcb->iopm_base_pa  = create_intercept_table ( 12 << 10 ); /* 12 Kbytes */
-
-	//Anh - allocating a region for msr intercept table, and fill it with 0x00
-	vmcb->msrpm_base_pa = create_intercept_table ( 8 << 10 );  /* 8 Kbytes */
-
-	/********** WHAT TO INTERCEPT *********/
-	//Note: start without any interception. Specific interception will be enabled
-	// by user program when appropriate.
-
-//	vmcb->general1_intercepts |= INTRCPT_INTN;
 }
 
 /* Anh - Create the nested paging table that map guest physical to host physical
@@ -132,6 +84,43 @@ static unsigned long create_4mb_nested_pagetable (unsigned long vmm_pmem_start, 
 	return cr3;
 }
 
+static unsigned long create_2mb_nested_pagetable (unsigned long vmm_pmem_start, unsigned long vmm_pmem_size,
+		struct e820_map *e820 )
+{
+	const unsigned long cr3  = pml4_table_alloc();
+
+	int i;
+
+	unsigned long vmm_pagestart = PAGE_DOWN_2MB(vmm_pmem_start);
+
+	//vmm_pageend = page after VMM - 1
+	unsigned long vmm_pageend = PAGE_UP_2MB(vmm_pmem_start + vmm_pmem_size) - 1;
+
+	outf( "VMM start = %x; VMM end = %x.\n", vmm_pagestart, vmm_pageend);
+
+	//Map all 4GB except VMM region (2^10 * 4MB)
+	unsigned long all4gb = 1 << 10;
+	for ( i = 0; i < all4gb; i++ )
+	{
+		const unsigned long guest_paddr = i << PAGE_SHIFT_2MB;
+
+		// enable this to hide VMM memory, a #NP will be created when the
+		// guest tries to access this region
+		if ((guest_paddr >= vmm_pagestart) && (guest_paddr <= vmm_pageend)) continue;
+		if ((guest_paddr + PAGE_SIZE_2MB >= vmm_pagestart)
+				&& (guest_paddr + PAGE_SIZE_4MB <= vmm_pageend)) continue;
+
+		// identity map
+		mmap_pml4 (cr3, guest_paddr, guest_paddr, 1 /* user */ );
+	}
+
+	outf( "Nested page table created.\n" );
+
+//	print_4MB_pg_table(cr3);
+
+	return cr3;
+}
+
 /********************************************************************************************/
 /******************************* NESTED PAGING PROTECTION ***********************************/
 /********************************************************************************************/
@@ -142,7 +131,7 @@ void set_4mb_pagetable_attr (u32 cr3, u32 linearaddr, u16 attr)
 	mmap_4mb (cr3, linearaddr, linearaddr, attr);
 }
 
-u16 get_4mb_pagetable_attr (u32 cr3, u32 linearaddr)
+u16 get_4mb_pagetable_attr (u64 cr3, u64 linearaddr)
 {
 	int index = linearaddr >> PAGE_SHIFT_4MB;
 	struct pd4M_entry * entry = (struct pd4M_entry *) (cr3 + index * sizeof(struct pd4M_entry));
@@ -150,7 +139,7 @@ u16 get_4mb_pagetable_attr (u32 cr3, u32 linearaddr)
 	return entry->flags;
 }
 
-void __vm_protect_all_nonPAE_page(u32 cr3)
+void __vm_protect_all_nonPAE_page(u64 cr3)
 {
 	int index;
 	unsigned long all4gb = 1 << 10;
@@ -172,7 +161,7 @@ void vm_protect_all_nonPAE_guestpage(struct vm_info * vm)
 	__vm_protect_all_nonPAE_page(vm->vmcb->cr3);
 }
 
-void __vm_unprotect_nonPAE_page(u32 cr3)
+void __vm_unprotect_nonPAE_page(u64 cr3)
 {
 	int index;
 
@@ -327,153 +316,6 @@ void vm_enable_intercept(struct vm_info * vm, int flags)
 		vm->vmcb->rflags |= X86_RFLAGS_TF;
 		vm->vmcb->exception_intercepts |= INTRCPT_DB;
 	}
-}
-
-/********************************************************************************************/
-/********************************* INITIALIZE VM STATE *************************************/
-/********************************************************************************************/
-
-//Anh - Test, to set initial state of VM to state of machine right after power up
-void set_vm_to_powerup_state(struct vmcb * vmcb)
-{
-	// vol 2 p350
-	memset(vmcb, 0, sizeof(vmcb));
-
-	vmcb->cr0 = 0x0000000060000010;
-	vmcb->cr2 = 0;
-	vmcb->cr3 = 0;
-	vmcb->cr4 = 0;
-	vmcb->rflags = 0x2;
-	vmcb->efer = EFER_SVME; // exception
-
-	vmcb->rip = 0xFFF0;
-	vmcb->cs.sel = 0xF000;
-	vmcb->cs.base = 0xFFFF0000;
-	vmcb->cs.limit = 0xFFFF;
-
-	vmcb->ds.sel = 0;
-	vmcb->ds.limit = 0xFFFF;
-	vmcb->es.sel = 0;
-	vmcb->es.limit = 0xFFFF;
-	vmcb->fs.sel = 0;
-	vmcb->fs.limit = 0xFFFF;
-	vmcb->gs.sel = 0;
-	vmcb->gs.limit = 0xFFFF;
-	vmcb->ss.sel = 0;
-	vmcb->ss.limit = 0xFFFF;
-
-	vmcb->gdtr.base = 0;
-	vmcb->gdtr.limit = 0xFFFF;
-	vmcb->idtr.base = 0;
-	vmcb->idtr.limit = 0xFFFF;
-
-	vmcb->ldtr.sel = 0;
-	vmcb->ldtr.base = 0;
-	vmcb->ldtr.limit = 0xFFFF;
-	vmcb->tr.sel = 0;
-	vmcb->tr.base = 0;
-	vmcb->tr.limit = 0xFFFF;
-
-//	vmcb->rdx = model info;
-//	vmcb->cr8 = 0;
-}
-
-void set_vm_to_mbr_start_state(struct vmcb* vmcb)
-{
-	// Prepare to load GRUB for the second time
-	// Basically copy the state when GRUB is first started
-	// Note: some other states will be set in svm_asm.S, at load_guest_states:
-	// ebx, ecx, edx, esi, edi, ebp
-
-	memset(vmcb, 0, sizeof(vmcb));
-
-	vmcb->rax = 0;
-
-	vmcb->rip = 0x7c00;
-
-	vmcb->cs.attrs.bytes = 0x019B;
-	vmcb->cs.limit = 0xFFFF;
-	vmcb->cs.base = 0;
-	vmcb->cs.sel = 0;
-
-	vmcb->ds.sel=0x0040;
-	vmcb->fs.sel=0xE717;
-	vmcb->gs.sel=0xF000;
-
-	int i;
-	struct seg_selector *segregs [] = {&vmcb->ss, &vmcb->ds, &vmcb->es, &vmcb->fs, &vmcb->gs, NULL};
-	for (i = 0; segregs [i] != NULL; i++)
-	{
-			struct seg_selector * x = segregs [i];
-			x->attrs.bytes = 0x93;
-			x->base = 0;
-			x->limit = 0xFFFF;
-	}
-
-	vmcb->rsp=0x000003E2;
-
-	vmcb->ss.attrs.bytes = 0x193;
-	vmcb->ds.base = 00000400;
-	vmcb->fs.base = 0xE7170;
-	vmcb->gs.base = 0xF0000;
-
-	vmcb->efer = EFER_SVME;	// must be set - vol2 p373
-	// EFLAGS=odItszaPc;
-
-	vmcb->cr0 = 0x0000000000000010;
-
-	vmcb->idtr.limit = 0x3FF;
-	vmcb->idtr.base = 0;
-	//setup idt?
-
-	vmcb->gdtr.limit = 0x20;
-	vmcb->gdtr.base = 0x06E127;
-	//setup gdt
-
-	vmcb->rflags = 0x2206;
-
-	vmcb->cpl = 0; /* must be equal to SS.DPL - TODO */
-
-	/*Anh - Setup PAT, vol2 p193
-	 * Each page table entry use 3 flags: PAT PCD PWT to specify index of the
-	 * corresponding PAT entry, which then specify the type of memory access for that page
-		PA0 = 110	- Writeback
-		PA1 = 100	- Writethrough
-		PA2 = 111	- UC-
-		PA3 = 000	- Unchachable
-		PA4 = 110	- Writeback
-		PA5 = 100	- Writethrough
-		PA6 = 111	- UC-
-		PA7 = 000	- Unchachable
-	 This is also the default PAT */
-	vmcb->g_pat = 0x7040600070406UL;
-
-	/******* GUEST INITIAL OPERATING MODE  ***************/
-	/******* pick one ******/
-
-	/* Legacy real mode
-	vmcb->cr0 = X86_CR0_ET;
-	vmcb->cr4 = 0;
-	*/
-
-	/* Legacy protected mode, paging disabled
-	vmcb->cr0 = X86_CR0_PE | X86_CR0_ET;
-	vmcb->cr3 = 0;
-	vmcb->cr4 = 0;
-	*/
-
-	/* Legacy protected mode, paging enabled (4MB pages)
-	vmcb->cr0 = X86_CR0_PE | X86_CR0_ET | X86_CR0_PG;
-	vmcb->cr3 = 0x07000000; //Anh -vmcb->cr3 must be aligned by page size (4MB)???
-	vmcb->cr4 = X86_CR4_PSE; //Anh - enable 4MB pages
-	*/
-
-	/*//Anh - Long mode
-	vmcb->cr0 = X86_CR0_PE | X86_CR0_MP | X86_CR0_ET | X86_CR0_NE | X86_CR0_PG;
-	vmcb->cr4 = X86_CR4_PAE;
-	vmcb->cr3 = 0x07000000; // dummy
-	vmcb->efer |= EFER_LME | EFER_LMA;
-	*/
 }
 
 void initialize_fid2name_map(struct vm_info *vm)
@@ -668,50 +510,48 @@ struct syscall_info * vm_get_waiting_syscall(struct vm_info *vm, int tid)
 void vm_create ( struct vm_info *vm, unsigned long vmm_pmem_start,
 		unsigned long vmm_pmem_size, struct e820_map *e820)
 {
-	outf("\n++++++ Creating guest VM....\n");
-
-	// Allocate a new page inside host memory for storing VMCB.
-	struct vmcb *vmcb;
-	vmcb = alloc_vmcb();
-	vm->vmcb = vmcb;
-	outf("VMCB location: %x\n", vmcb);
-
-	/* Allocate new pages for physical memory of the guest OS.  */
-	//const unsigned long vm_pmem_start = alloc_vm_pmem ( vm_pmem_size );
-	//const unsigned long vm_pmem_start = 0x0; // guest is preallocated
-
-	/* Set Host-level CR3 to use for nested paging.  */
-	vm->n_cr3 = create_4mb_nested_pagetable  (vmm_pmem_start, vmm_pmem_size, e820);
-	vmcb->n_cr3 = vm->n_cr3;
-
-	//Set control params for this VM
-	//such as whether to enable nested paging, what to intercept...
-	set_control_params (vm->vmcb);
-
-	// Set VM initial state
-	// Guest VM start at MBR code, which is GRUB stage 1
-	// vmcb->rip = 0x7c00; address of loaded MBR
-	set_vm_to_mbr_start_state(vmcb);
+	outf("\n++++++ Initializing guest VM info....\n");
+	
+	memset((char *)vm, 0, sizeof(struct vm_info));
 
 	initialize_fid2name_map(vm);
 	initialize_syscallmap(vm);
 	initialize_ptracked_list(vm);
 
 	vm->waitingRetSysCall = 0;
+	
+	/* Allocate new pages for physical memory of the guest OS.  */
+	//const unsigned long vm_pmem_start = alloc_vm_pmem ( vm_pmem_size );
+	//const unsigned long vm_pmem_start = 0x0; // guest is preallocated
+	//vm->n_cr3 = create_4mb_nested_pagetable  (vmm_pmem_start, vmm_pmem_size, e820);
+	vm->n_cr3 = create_2mb_nested_pagetable (vmm_pmem_start, vmm_pmem_size, e820);
 }
 
-static void switch_to_guest_os ( struct vm_info *vm )
+// Identify CPU. Make sure it supports virtualzation feature.
+// And then enable AMD SVM feature or Intel VMX feature according to the cpu type
+void vm_init ( struct vm_info *vm )
 {
-//	outf(">>>>>>>>>>> GOING INTO THE MATRIX!!!!!\n");
-	//u64 p_vmcb = vm->vmcb;
+	struct cpuinfo_x86 cpuinfo;
 
-	/* Set the pointer to VMCB to %rax (vol. 2, p. 440) */
-	__asm__("push %%eax; mov %0, %%eax" :: "r" (vm->vmcb));
+	early_identify_cpu (&cpuinfo);
 
-	svm_launch ();
+	switch (cpuinfo.x86_vendor)
+	{
+	case X86_VENDOR_AMD:
+		init_amd (vm, &cpuinfo);
+		break;
 
-	__asm__("pop %eax");
+	case X86_VENDOR_INTEL:
+		init_intel (vm, &cpuinfo);
+		break;
+
+	case X86_VENDOR_UNKNOWN:
+	default:
+		fatal_failure ("Unknown CPU vendor\n");
+		break;
+	}
 }
+
 /**
  * to boot a linux vm, you'll need a copy of DSL that is checked out in a directory called dsl
  * I've uploaded it to http://www.cs.uiuc.edu/homes/nschear2/dsl-tvmm.tgz
@@ -745,11 +585,11 @@ void vm_boot (struct vm_info *vm)
 //		outf("\n<<< %x >>> Guest state in VMCB:\n", i);
 //		show_vmcb_state (vm); // Anh - print guest state in VMCB
 
-		switch_to_guest_os (vm);
+		vm->vm_run (vm);
 
 //		outf("\n<<< #%x >>> Guest state at VMEXIT:\n", i);
 
-		handle_vmexit (vm);
+		vm->vm_exit (vm);
 
 //		outf("\nTesting address translation function...\n");
 //		unsigned long gphysic = glogic_2_gphysic(vm);

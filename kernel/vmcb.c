@@ -1,13 +1,15 @@
 /********************************************************************************
- * Created and copyright by MAVMM project group:
- * 	Anh M. Nguyen, Nabil Schear, Apeksha Godiyal, HeeDong Jung, et al
- *  Distribution is prohibited without the authors' explicit permission
- ********************************************************************************/
+* This software is licensed under the GNU General Public License:
+* http://www.gnu.org/licenses/gpl.html
+*
+* MAVMM Project Group:
+* Anh M. Nguyen, Nabil Schear, Apeksha Godiyal, HeeDong Jung, et al
+*
+*********************************************************************************/
 
 #include "serial.h"
 #include "failure.h"
 #include "msr.h"
-#include "system.h"
 #include "vmcb.h"
 #include "svm.h"
 #include "page.h"
@@ -18,10 +20,10 @@ void print_vmcb_state (struct vmcb *vmcb)
 	outf ( "*******  VMCB STATE  *********\n" );
 	outf ( "cs:ip = %x:%x\n", vmcb->cs.sel, vmcb->rip );
 	outf ( "ss:sp = %x:%x\n", vmcb->ss.sel, vmcb->rsp );
-	outf ( "ds:bp = %x:%x\n", vmcb->ds.sel, g_ebp);
+	outf ( "ds:bp = %x:%x\n", vmcb->ds.sel, g_rbp);
 
-	outf ( "eax = %x, ebx = %x, ecx = %x, edx = %x\n", vmcb->rax, g_ebx, g_ecx, g_edx);
-	outf ( "esi = %x, edi = %x", g_esi, g_edi);
+	outf ( "eax = %x, ebx = %x, ecx = %x, edx = %x\n", vmcb->rax, g_rbx, g_rcx, g_rdx);
+	outf ( "esi = %x, edi = %x", g_rsi, g_rdi);
 
 	outf ( "cpl=%x\n", vmcb->cpl );
 	outf ( "cr0=%x, cr3=%x, cr4=%x\n", vmcb->cr0, vmcb->cr3, vmcb->cr4 );
@@ -32,7 +34,7 @@ void print_vmcb_state (struct vmcb *vmcb)
 //	outf ( "cs.limit=%x, ds.limit=%x\n", vmcb->cs.limit, vmcb->ds.limit);
 }
 
-#define BIT_MASK(n)  ( ~ ( ~0UL << (n) ) )
+#define BIT_MASK(n)  ( ~ ( ~0ULL << (n) ) )
 #define SUB_BIT(x, start, len) ( ( ( ( x ) >> ( start ) ) & BIT_MASK ( len ) ) )
 
 
@@ -221,4 +223,46 @@ void vmcb_dump( const struct vmcb *vmcb )
 	seg_selector_dump ( "LDTR", &vmcb->ldtr );
 	seg_selector_dump ( "IDTR", &vmcb->idtr );
 	seg_selector_dump ( "TR", &vmcb->tr );
+}
+
+void print_vmexit_exitcode (struct vmcb * vmcb)
+{
+	outf ( "#VMEXIT: ");
+
+	switch ( vmcb->exitcode ) {
+	case VMEXIT_EXCEPTION_PF:
+		outf ( "EXCP (page fault)" ); break;
+	case VMEXIT_NPF:
+		outf ( "NPF (nested-paging: host-level page fault)" ); break;
+	case VMEXIT_INVALID:
+		outf ( "INVALID" ); break;
+	default:
+		outf ( "%x", ( unsigned long ) vmcb->exitcode ); break;
+	}
+
+	outf ( "\n" );
+	outf ( "exitinfo1 (error_code) = %x, ", vmcb->exitinfo1);
+	outf ( "exitinfo2 = %x, ", vmcb->exitinfo2);
+	outf ( "exitINTinfo = %x\n", vmcb->exitintinfo );
+}
+
+/*****************************************************/
+//manual vol 2 - 8.4.2 Page-Fault Error Code
+// Note for NPF: p410 - 15.24.6 Nested versus Guest Page Faults, Fault Ordering
+void print_page_errorcode(u64 errcode)
+{
+	if (errcode & 1) outf ( "page fault was caused by a page-protection violation\n" );
+	else outf ( "page fault was caused by a not-present page\n" );
+
+	if (errcode & 2) outf ( "memory access was write\n" );
+	else outf ( "memory access was read\n" );
+
+	if (errcode & 4 ) outf ( "an access in user mode caused the page fault\n" );
+	else outf ( "an access in supervisor mode caused the page fault\n" );
+
+	if (errcode & 8 ) outf ( "error caused by reading a '1' from reserved field, \
+			when CR4.PSE=1 or CR4.PAE=1\n" );
+
+	if (errcode & 16 ) outf ( "error caused by instruction fetch, when \
+			EFER.NXE=1 && CR4.PAE=1");
 }

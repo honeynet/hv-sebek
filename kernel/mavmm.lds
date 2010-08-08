@@ -1,6 +1,6 @@
 /* check http://www.redhat.com/docs/manuals/enterprise/RHEL-4-Manual/gnu-linker/simple-commands.html */
-OUTPUT_FORMAT("elf32-i386", "elf32-i386", "elf32-i386")
-OUTPUT_ARCH(i386)
+OUTPUT_FORMAT("elf64-x86-64", "elf64-x86-64", "elf64-x86-64")
+OUTPUT_ARCH(i386:x86-64)
 ENTRY(_start)
 
 /* Program headers */
@@ -9,8 +9,7 @@ PHDRS
 	text PT_LOAD; /* Indicate that this program header describes a segment to be loaded from the file */
 }
 
-phys = 0;
-
+phys = 0x200000; /* 2 MB */
 SECTIONS
 {
 	.text : AT(phys)

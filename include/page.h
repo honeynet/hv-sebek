@@ -6,7 +6,9 @@
 #define PAGE_MASK  ( ~ ( PAGE_SIZE - 1 ) )
 
 #define PAGE_SHIFT_2MB 21
-#define PAGE_SIZE_2MB  ( 1 << PAGE_SHIFT_2MB )
+#define PAGE_SIZE_2MB	(1 << PAGE_SHIFT_2MB)
+#define PAGE_MASK_2MB	(~(PAGE_SIZE_2MB - 1))
+
 //haind for 4kb page
 #define PAGE_SHIFT_4KB 12
 #define PAGE_SIZE_4KB (1 << PAGE_SHIFT_4KB)
@@ -21,6 +23,9 @@
 
 #define PFN_UP_2MB(x)	(((x) + PAGE_SIZE_2MB - 1) >> PAGE_SHIFT_2MB)
 #define PFN_DOWN_2MB(x)	((x) >> PAGE_SHIFT_2MB)
+
+#define PAGE_UP_2MB(p)		(((p) + (PAGE_SIZE_2MB - 1)) & PAGE_MASK_2MB)
+#define PAGE_DOWN_2MB(p)	((p) & PAGE_MASK_2MB)
 
 #define PAGE_UP_4MB(p)    ( ( (p) + ( PAGE_SIZE_4MB - 1 ) ) & PAGE_MASK_4MB )	// round up to closest next 4MB page boundary
 #define PAGE_DOWN_4MB(p)  ( (p) & PAGE_MASK_4MB )		// round down to closest previous 4MB page boundary
@@ -45,7 +50,23 @@
 #define PTTEF_PAGE_SIZE  (1 << _PTTEF_PAGE_SIZE)
 #define PTTEF_GLOBAL     (1 << _PTTEF_GLOBAL)
 
+
+#ifdef __ASSEMBLY__
+
+#define VMM_OFFSET	0xFFFF830000000000
+#define PHYS(va)	((va) - VMM_OFFSET)
+
+#else /* ! __ASSEMBLY__ */
+
+#define VMM_OFFSET	0xFFFF830000000000UL
+#define PHYS(va)	((unsigned long)(va) - VMM_OFFSET)
+#define VIRT(pa)	((void *)((unsigned long)(pa) + VMM_OFFSET))
+
+#endif /* __ASSEMBLY__ */
+
+
 #ifndef __ASSEMBLY__
+
 
 enum pg_table_level {
 	PGT_LEVEL_PML4 = 4,
@@ -57,10 +78,10 @@ enum pg_table_level {
 /*Anh - For 4MB page translation, PAE disabled, vol2 p124  */
 struct pd4M_entry {
 	u16 flags:  	13; /* Bit 0-12 */
-	u32 basehigh:  	8; 	/* Bit 13-20 of the entry => bit 32-39 of base */
+	u16 basehigh:  	8; 	/* Bit 13-20 of the entry => bit 32-39 of base */
 	u8  rsvr:  		1; 	/* Bit 21 */
 	u16 baselow:  	10;	/* Bit 22-31 of the entry => bit 22-31 of base */
-} __attribute__ ((packed)) pd4M_entry;
+} __attribute__ ((packed));
 
 /*haind - For 4KB page translation, PAE disabled*/
 union pgt_entry_4kb
@@ -112,7 +133,7 @@ extern void mmap_4mb ( unsigned long pg_table_base_vaddr, unsigned long vaddr, u
 extern u64 linear_2_physical(u64 cr0, u64 cr3, u64 cr4, u64 guest_linear);
 extern long long linear2physical_legacy4kb ( unsigned long pg_table_base_vaddr, unsigned long vaddr);
 extern long long linear2physical_legacy4mb ( unsigned long pg_table_base_vaddr, unsigned long vaddr);
-extern unsigned long linear2physical_legacy2mb ( unsigned long pml4_table_base_vaddr, unsigned long vaddr );
+extern unsigned long linear2physical_2mb ( unsigned long pml4_table_base_vaddr, unsigned long vaddr );
 
 extern void print_pml4_2MB_pg_table ( unsigned long pml4_table_base_vaddr );
 extern void print_4MB_pg_table ( unsigned long pg_table_base_vaddr);

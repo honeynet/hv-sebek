@@ -3,6 +3,7 @@ TARGET = mavmm
 all: ${TARGET}
 
 ${TARGET}:
+	ctags -R
 	make -C kernel
 	make -C testos
 	make -C user
@@ -13,7 +14,7 @@ clean:
 	make -C testos clean
 	make -C user clean
 	make -C hostfs clean	
-	rm *.~
+	#rm *.~
 
 inv:
 	make -C invaders

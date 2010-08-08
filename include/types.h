@@ -18,6 +18,8 @@ typedef unsigned long long u64;
 
 typedef unsigned long size_t;
 
+#define BYTES_PER_LONG  8
+
 #if 0 
 #define __init		__attribute__ ((__section__ (".init.text")))
 #else

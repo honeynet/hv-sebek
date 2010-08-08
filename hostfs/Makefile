@@ -25,8 +25,8 @@ INCLUDES = -I${INCLUDE_DIR}
 #    	Append dir to the prefix specified previously with -iprefix, and add the resulting directory to the include search path. 
 # -fno-stack-protector: disable stack protector (which automatically inserts protection code into an application at compilation time)
 
-CFLAGS   = -m32 -Wall ${INCLUDES} -fPIC -nostdinc -nostdlib -fno-builtin -iwithprefix include -fno-stack-protector
-LDFLAGS	= -m elf_i386
+CFLAGS   = -Wall ${INCLUDES} -fPIC -nostdinc -nostdlib -fno-builtin -iwithprefix include -fno-stack-protector
+LDFLAGS	 = -m elf_x86_64
 
 COMMON_OBJECTS = ../kernel/string.o ../kernel/printf.o ../kernel/failure.o ../kernel/e820.o ../kernel/serial.o
 HOSTFS_OBJECTS  = fat32.o fat32_ui.o mode.o

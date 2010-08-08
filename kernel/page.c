@@ -1,15 +1,18 @@
 /********************************************************************************
- * Created and copyright by MAVMM project group:
- * 	Anh M. Nguyen, Nabil Schear, Apeksha Godiyal, HeeDong Jung, et al
- *  Distribution is prohibited without the authors' explicit permission
- ********************************************************************************/
+* This software is licensed under the GNU General Public License:
+* http://www.gnu.org/licenses/gpl.html
+*
+* MAVMM Project Group:
+* Anh M. Nguyen, Nabil Schear, Apeksha Godiyal, HeeDong Jung, et al
+*
+*********************************************************************************/
 
+#include "cpu.h"
 #include "string.h"
 #include "failure.h"
 #include "serial.h"
 #include "page.h"
 #include "alloc.h"
-#include "system.h"
 
 unsigned long pg_table_alloc (void)
 {
@@ -88,7 +91,7 @@ void mmap_4mb ( unsigned long pg_table_base_vaddr, unsigned long vaddr, unsigned
 	struct pd4M_entry * entry = (struct pd4M_entry *) (pg_table_base_vaddr + index * sizeof(struct pd4M_entry));
 
 	/* For page directory entry */
-	unsigned int base = paddr >> PAGE_SHIFT_4MB;
+	unsigned long base = paddr >> PAGE_SHIFT_4MB;
 	//TODO: handle base > 32 bits
 	entry->baselow = base;
 	entry->basehigh = 0;

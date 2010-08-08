@@ -1,19 +1,54 @@
-/********************************************************************************
- * Created and copyright by MAVMM project group:
- * 	Anh M. Nguyen, Nabil Schear, Apeksha Godiyal, HeeDong Jung, et al
- *  Distribution is prohibited without the authors' explicit permission
- ********************************************************************************/
+/*========================================================
+**University of Illinois/NCSA
+**Open Source License
+**
+**Copyright (C) 2007-2008,The Board of Trustees of the University of
+**Illinois. All rights reserved.
+**
+**Developed by:
+**
+**    Research Group of Professor Sam King in the Department of Computer
+**    Science The University of Illinois at Urbana-Champaign
+**    http://www.cs.uiuc.edu/homes/kingst/Research.html
+**
+**Permission is hereby granted, free of charge, to any person obtaining a
+**copy of this software and associated documentation files (the
+**¡°Software¡±), to deal with the Software without restriction, including
+**without limitation the rights to use, copy, modify, merge, publish,
+**distribute, sublicense, and/or sell copies of the Software, and to
+**permit persons to whom the Software is furnished to do so, subject to
+**the following conditions:
+**
+*** Redistributions of source code must retain the above copyright notice,
+**this list of conditions and the following disclaimers.
+*** Redistributions in binary form must reproduce the above copyright
+**notice, this list of conditions and the following disclaimers in the
+**documentation and/or other materials provided with the distribution.
+*** Neither the names of <Name of Development Group, Name of Institution>,
+**nor the names of its contributors may be used to endorse or promote
+**products derived from this Software without specific prior written
+**permission.
+**
+**THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+**EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+**MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+**IN NO EVENT SHALL THE CONTRIBUTORS OR COPYRIGHT HOLDERS BE LIABLE FOR
+**ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+**TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+**SOFTWARE OR THE USE OR OTHER DEALINGS WITH THE SOFTWARE.
+**==========================================================
+*/
+
 #include "user.h"
 #include "intercept.h"
-#include "vmexit.h"
 #include "serial.h"
 #include "svm.h"
 #include "vm.h"
 #include "failure.h"
 #include "string.h"
-#include "system.h"
 #include "page.h"
 #include "segment.h"
+#include "msr.h"
 
 
 /*****************************************************************************************/
@@ -21,7 +56,7 @@
 /*****************************************************************************************/
 
 // Assumption: GP = HP
-u64 glogic_2_hphysic(struct vm_info * vm, u16 seg_select, u64 offset)
+unsigned long glogic_2_hphysic(struct vm_info * vm, u16 seg_select, u64 offset)
 {
 	u64 glinear = glogic_2_glinear(vm, seg_select, offset);
 	u64 gphysic = linear_2_physical(vm->vmcb->cr0, vm->vmcb->cr3, vm->vmcb->cr4, glinear);
@@ -175,7 +210,7 @@ struct syscall_entry syscalls[]={
 void sys_uselib( struct vm_info *vm)
 {
         char * library;
-        unsigned long arg1 = glogic_2_hphysic(vm, vm->vmcb->ds.sel, g_ebx);
+        unsigned long arg1 = glogic_2_hphysic(vm, vm->vmcb->ds.sel, g_rbx);
 
         if(arg1 != -1)
         {
@@ -191,20 +226,20 @@ void sys_uselib( struct vm_info *vm)
 //flags in ecx and mode in edx
 void sys_open( struct vm_info *vm)
 {
-	char * filename = (char *) glogic_2_hphysic(vm, vm->vmcb->ds.sel, g_ebx);
+	char * filename = (char *) glogic_2_hphysic(vm, vm->vmcb->ds.sel, g_rbx);
 
-	if((int) filename != -1)
+	if((long) filename != -1)
 	{
 		const unsigned long MASK = ( ( 1 << 16 ) - 1 );
-		int flags = g_ecx & MASK;
-		int mode =  g_edx & MASK;
+		int flags = g_rcx & MASK;
+		int mode =  g_rdx & MASK;
 		outf("filename: %s, flags: %x, mode: %x", filename, flags, mode);
 
 		int tid = get_cur_threadid(vm, 3);
 
 		struct syscall_info info;
 		info.syscallno = SYS_OPEN;
-		info.arg = (int) filename;	//hp of file name
+		info.arg = (long) filename;	//hp of file name
 
 		vm_add_waiting_thread(vm, tid, &info);
 	}
@@ -222,8 +257,8 @@ void sys_open_iret(struct vm_info *vm, struct syscall_info * info)
 // for handling close system call
 void sys_close(struct vm_info *vm)
 {
-	char * fname = vm_get_fname_from_id(vm, g_ebx);
-	if (fname == NULL) outf("fd: %x", g_ebx);	//arg 1
+	char * fname = vm_get_fname_from_id(vm, g_rbx);
+	if (fname == NULL) outf("fd: %x", g_rbx);	//arg 1
 	else outf("filename: %s", fname);
 
 }
@@ -239,7 +274,7 @@ void sys_waitpid( struct vm_info *vm )
 	int arg3;
 
 	// refer to 'man 2 waitpid'
-	arg1 = (int) g_ebx;
+	arg1 = (int) g_rbx;
 	if (arg1 < -1)
 		outf("Waiting for any child process whose process group ID is %x, ", -arg1);
 	else if(arg1 == -1)
@@ -251,12 +286,12 @@ void sys_waitpid( struct vm_info *vm )
 	else
 		outf("Error: Should not reach here");
 
-	host_p_addr_arg2 = glogic_2_hphysic(vm, vm->vmcb->ds.sel, g_ecx);
+	host_p_addr_arg2 = glogic_2_hphysic(vm, vm->vmcb->ds.sel, g_rcx);
 	arg2 = (int *) host_p_addr_arg2;
 	if (arg2 != NULL) outf("Status: %x, ", *arg2);
 	else outf("Status: NULL, ");
 
-	arg3 = (int) g_edx;
+	arg3 = (int) g_rdx;
 	outf("Option: %x", arg3);
 
 }
@@ -270,11 +305,11 @@ void sys_link( struct vm_info *vm )
 	unsigned long host_p_addr_arg1;
 	unsigned long host_p_addr_arg2;
 
-	host_p_addr_arg1 = glogic_2_hphysic(vm, vm->vmcb->ds.sel, g_ebx);
+	host_p_addr_arg1 = glogic_2_hphysic(vm, vm->vmcb->ds.sel, g_rbx);
 	arg1 = (int *) host_p_addr_arg1;
 	if (arg1 != NULL) outf("Old Filename: %s, ", arg1);
 
-	host_p_addr_arg2 = glogic_2_hphysic(vm, vm->vmcb->ds.sel, g_ecx);
+	host_p_addr_arg2 = glogic_2_hphysic(vm, vm->vmcb->ds.sel, g_rcx);
 	arg2 = (int *) host_p_addr_arg2;
 	if (arg2 != NULL) outf("New Filename: %s", arg2);
 
@@ -287,7 +322,7 @@ void sys_unlink( struct vm_info *vm )
 	int *arg1;
 	unsigned long host_p_addr_arg1;
 
-	host_p_addr_arg1 = glogic_2_hphysic(vm, vm->vmcb->ds.sel, g_ebx);
+	host_p_addr_arg1 = glogic_2_hphysic(vm, vm->vmcb->ds.sel, g_rbx);
 	arg1 = (int *) host_p_addr_arg1;
 	if (arg1 != NULL) outf("Filename: %s", arg1);
 }
@@ -301,22 +336,22 @@ void sys_mmap( struct vm_info *vm )
 	int arg3, arg4;
 	unsigned int arg6;
 
-	outf("Starting Addr: %x, ", g_ebx); //arg1
+	outf("Starting Addr: %x, ", g_rbx); //arg1
 
-	arg2 = g_ecx;
+	arg2 = g_rcx;
 	outf("Length: %x, ", arg2);
 
-	arg3 = g_edx;
+	arg3 = g_rdx;
 	outf("MEM Protection: %x, ", arg3);
 
-	arg4 = g_esi;
+	arg4 = g_rsi;
 	outf("Flag: %x, ", arg4);
 
-	char * fname = vm_get_fname_from_id(vm, g_edi);
-	if (fname == NULL) outf("fd: %x, ", g_edi);
+	char * fname = vm_get_fname_from_id(vm, g_rdi);
+	if (fname == NULL) outf("fd: %x, ", g_rdi);
 	else outf("filename: %s, ", fname);
 
-	arg6 = g_ebp;
+	arg6 = g_rbp;
 	outf("Offset: %x", arg6);
 
 }
@@ -328,9 +363,9 @@ void sys_munmap( struct vm_info *vm )
 {
 	unsigned int arg2;
 
-	outf("Starting Addr: %x, ", g_ebx);
+	outf("Starting Addr: %x, ", g_rbx);
 
-	arg2 = g_ecx;
+	arg2 = g_rcx;
 	outf("Length: %x", arg2);
 
 }
@@ -342,12 +377,12 @@ void sys_access( struct vm_info *vm )
 	int *arg1;
 	unsigned long host_p_addr_arg1;
 
-	host_p_addr_arg1 = glogic_2_hphysic(vm, vm->vmcb->ds.sel, g_ebx);
+	host_p_addr_arg1 = glogic_2_hphysic(vm, vm->vmcb->ds.sel, g_rbx);
 	arg1 = (int *) host_p_addr_arg1;
 	if (arg1 != NULL) outf("Filename to check: %s, ", arg1);
 
 	int arg2;
-	arg2 = g_ecx;
+	arg2 = g_rcx;
 
 	switch(arg2)
 	{
@@ -367,16 +402,16 @@ void sys_lchown( struct vm_info *vm )
 	int *arg1;
 	unsigned long host_p_addr_arg1;
 
-	host_p_addr_arg1 = glogic_2_hphysic(vm, vm->vmcb->ds.sel, g_ebx);
+	host_p_addr_arg1 = glogic_2_hphysic(vm, vm->vmcb->ds.sel, g_rbx);
 	arg1 = (int *) host_p_addr_arg1;
 	if (arg1 != NULL) outf("Filename: %s, ", arg1);
 
 	int arg2;
-	arg2 = g_ecx;
+	arg2 = g_rcx;
 	outf("Owner ID: %x, ", arg2);
 
 	int arg3;
-	arg3 = g_edx;
+	arg3 = g_rdx;
 	outf("Group ID: %x", arg3);
 
 }
@@ -385,16 +420,16 @@ void sys_lchown( struct vm_info *vm )
 // reposition read/write file offset
 void sys_lseek( struct vm_info *vm )
 {
-	char * fname = vm_get_fname_from_id(vm, g_ebx);
-	if (fname == NULL) outf("fd: %x, ", g_ebx);	//arg 1
+	char * fname = vm_get_fname_from_id(vm, g_rbx);
+	if (fname == NULL) outf("fd: %x, ", g_rbx);	//arg 1
 	else outf("filename: %s, ", fname);
 
 	int arg2;
-	arg2 = g_ecx;
+	arg2 = g_rcx;
 	outf("Offset: %x, ", arg2);
 
 	int arg3;
-	arg3 = g_edx;
+	arg3 = g_rdx;
 	outf("whence: %x", arg3);
 
 }
@@ -408,14 +443,14 @@ void sys_lseek( struct vm_info *vm )
 //returned data from registers.
 void sys_read( struct vm_info *vm)
 {
-	char * fname = vm_get_fname_from_id(vm, g_ebx);
-	if (fname == NULL) outf("fd: %x, ", g_ebx);
+	char * fname = vm_get_fname_from_id(vm, g_rbx);
+	if (fname == NULL) outf("fd: %x, ", g_rbx);
 	else outf("filename: %s, ", fname);	//arg 1
 
-	outf("buffer: %x, ", g_ecx); //arg 2
+	outf("buffer: %x, ", g_rcx); //arg 2
 
 	const unsigned long MASK = ( ( 1 << 16 ) - 1 );
-	int bufsize = g_edx & MASK; //arg 3
+	int bufsize = g_rdx & MASK; //arg 3
 	outf("size: %x", bufsize);
 
 	//get tid of current process & add it to list of waiting thread
@@ -424,7 +459,7 @@ void sys_read( struct vm_info *vm)
 
 	struct syscall_info info;
 	info.syscallno = SYS_READ;
-	info.arg = g_ecx;
+	info.arg = g_rcx;
 
 	vm_add_waiting_thread(vm, tid, &info);
 
@@ -443,7 +478,7 @@ void sys_read_iret(struct vm_info *vm, struct syscall_info * info)
 
 	if(vm->vmcb->rax > 0)
 	{
-		int buffer_hp = glogic_2_hphysic(vm, vm->vmcb->ds.sel, info->arg);
+		unsigned long buffer_hp = glogic_2_hphysic(vm, vm->vmcb->ds.sel, info->arg);
 
 		if (buffer_hp != -1)
 		{
@@ -466,14 +501,14 @@ void sys_read_iret(struct vm_info *vm, struct syscall_info * info)
 //ebx contains a file descriptor
 void sys_write( struct vm_info *vm)
 {
-	char * fname = vm_get_fname_from_id(vm, g_ebx);
-	if (fname == NULL) outf("fd: %x, ", g_ebx);	//arg 1
+	char * fname = vm_get_fname_from_id(vm, g_rbx);
+	if (fname == NULL) outf("fd: %x, ", g_rbx);	//arg 1
 	else outf("filename: %s, ", fname);
 
-	outf("size: %x, ", g_edx);	//arg 3
+	outf("size: %x, ", g_rdx);	//arg 3
 
 	//host physical address of data
-	unsigned long arg2 =  glogic_2_hphysic(vm, vm->vmcb->ds.sel, g_ecx);
+	unsigned long arg2 =  glogic_2_hphysic(vm, vm->vmcb->ds.sel, g_rcx);
 
 	if(arg2 != -1) outf("content written [%s]", arg2);
 }
@@ -483,18 +518,18 @@ void sys_write( struct vm_info *vm)
 // for handling ioctl system call
 void sys_ioctl( struct vm_info *vm )
 {
-	char * fname = vm_get_fname_from_id(vm, g_ebx);
-	if (fname == NULL) outf("fd: %x, ", g_ebx);	//arg 1
+	char * fname = vm_get_fname_from_id(vm, g_rbx);
+	if (fname == NULL) outf("fd: %x, ", g_rbx);	//arg 1
 	else outf("filename: %s, ", fname);
 
 	int arg2;
 	char * arg3;
 	unsigned long host_p_addr_arg3;
 
-	arg2 = (int) g_ecx;
+	arg2 = (int) g_rcx;
 	outf("Device-dependent request code: %x, ", arg2);
 
-	outf("Memory Addr: %x", g_edx); //arg 2
+	outf("Memory Addr: %x", g_rdx); //arg 2
 
 }
 
@@ -506,11 +541,11 @@ void sys_ioctl( struct vm_info *vm )
 //for handling data received from outside hosts, should be call from an "iret" event
 void sys_recvfrom(struct vm_info *vm)
 {
-	 unsigned long buffer_gl = *((unsigned long *)glogic_2_hphysic(vm, vm->vmcb->ds.sel, g_ecx + 4));
-	 unsigned long peer_info_gl = *((unsigned long *)glogic_2_hphysic(vm, vm->vmcb->ds.sel, g_ecx + 16));
+	 unsigned long buffer_gl = *((unsigned long *)glogic_2_hphysic(vm, vm->vmcb->ds.sel, g_rcx + 4));
+	 unsigned long peer_info_gl = *((unsigned long *)glogic_2_hphysic(vm, vm->vmcb->ds.sel, g_rcx + 16));
 
 	 const unsigned long MASK = ( ( 1 << 16 ) - 1 );
-	 int bufsize = (*((unsigned long *)glogic_2_hphysic(vm, vm->vmcb->ds.sel, g_ecx + 8))) & MASK;
+	 int bufsize = (*((unsigned long *)glogic_2_hphysic(vm, vm->vmcb->ds.sel, g_rcx + 8))) & MASK;
 
 	 unsigned char *peer_ip; //ip of peer
 	 unsigned long peer_info_hp; //pointer to sockaddr_in corresponding to peer
@@ -538,7 +573,7 @@ void sys_recvfrom_iret(struct vm_info *vm, struct syscall_info * info)
 {
 	int i;
 
-	int buffer_hp = glogic_2_hphysic(vm, 0, info->arg);
+	unsigned long buffer_hp = glogic_2_hphysic(vm, 0, info->arg);
 
 	if (buffer_hp != -1)
 	{
@@ -561,7 +596,7 @@ void sys_sendto(struct vm_info *vm)
 	 unsigned long arg[6]; // array of parameters in sys_recvfrom
 	 int i;
 	 for (i = 0; i < 6; i ++)
-	 	 arg[i] = *((unsigned long *)glogic_2_hphysic(vm, vm->vmcb->ds.sel, g_ecx + i * 4));
+	 	 arg[i] = *((unsigned long *)glogic_2_hphysic(vm, vm->vmcb->ds.sel, g_rcx + i * 4));
 
 	 const unsigned long MASK = ( ( 1 << 16 ) - 1 );
 	 int bufsize = arg[2] & MASK;
@@ -572,7 +607,7 @@ void sys_sendto(struct vm_info *vm)
 	 peer_ip = (unsigned char*)&(((struct sockaddr_in*)peer_info_hp)->sin_addr);
 
 
-	 int buffer_hp = glogic_2_hphysic(vm, 0, arg[1]);
+	 unsigned long buffer_hp = glogic_2_hphysic(vm, 0, arg[1]);
 
 	 	 if (buffer_hp != -1)
 	 	 	{
@@ -594,7 +629,7 @@ void sys_socket(struct vm_info *vm)
 	 unsigned long arg[6]; // array of parameters in sys_recvfrom
 	 int i;
 	 for (i = 0; i < 6; i ++)
-	 	 arg[i] = *((unsigned long *)glogic_2_hphysic(vm, vm->vmcb->ds.sel, g_ecx + i * 4));
+	 	 arg[i] = *((unsigned long *)glogic_2_hphysic(vm, vm->vmcb->ds.sel, g_rcx + i * 4));
 
 	 outf("sys_socket  family %x, type %x protocol %x", arg[0], arg[1], arg[2]);
 
@@ -607,7 +642,7 @@ void sys_bind(struct vm_info *vm)
 	 unsigned long arg[6]; // array of parameters in sys_recvfrom
 	 int i;
 	 for (i = 0; i < 6; i ++)
-		 arg[i] = *((unsigned long *)glogic_2_hphysic(vm, vm->vmcb->ds.sel, g_ecx + i * 4));
+		 arg[i] = *((unsigned long *)glogic_2_hphysic(vm, vm->vmcb->ds.sel, g_rcx + i * 4));
 
 	 unsigned char *peer_ip; //ip of peer
 	 unsigned long peer_info_hp; //pointer to sockaddr_in corresponding to peer
@@ -624,7 +659,7 @@ void sys_connect(struct vm_info *vm)
 	 unsigned long arg[6]; // array of parameters in sys_recvfrom
 	 int i;
 	 for (i = 0; i < 6; i ++)
-		 arg[i] = *((unsigned long *)glogic_2_hphysic(vm, vm->vmcb->ds.sel, g_ecx + i * 4));
+		 arg[i] = *((unsigned long *)glogic_2_hphysic(vm, vm->vmcb->ds.sel, g_rcx + i * 4));
 
 	 unsigned char *peer_ip; //ip of peer
 	 unsigned long peer_info_hp; //pointer to sockaddr_in corresponding to peer
@@ -640,7 +675,7 @@ void sys_listen(struct vm_info *vm)
 	 unsigned long arg[6]; // array of parameters in sys_recvfrom
 	 int i;
 	 for (i = 0; i < 6; i ++)
-		 arg[i] = *((unsigned long *)glogic_2_hphysic(vm, vm->vmcb->ds.sel, g_ecx + i * 4));
+		 arg[i] = *((unsigned long *)glogic_2_hphysic(vm, vm->vmcb->ds.sel, g_rcx + i * 4));
 
 	 outf("listen  fd %x, backlog %x", arg[0], arg[1]);
 }
@@ -652,7 +687,7 @@ void sys_accept(struct vm_info *vm)
 	 unsigned long arg[6]; // array of parameters in sys_recvfrom
 	 int i;
 	 for (i = 0; i < 6; i ++)
-		 arg[i] = *((unsigned long *)glogic_2_hphysic(vm, vm->vmcb->ds.sel, g_ecx + i * 4));
+		 arg[i] = *((unsigned long *)glogic_2_hphysic(vm, vm->vmcb->ds.sel, g_rcx + i * 4));
 
 	 unsigned char *peer_ip; //ip of peer
 	 unsigned long peer_info_hp; //pointer to sockaddr_in corresponding to peer
@@ -671,7 +706,7 @@ void sys_socketcall(struct vm_info *vm)
 
 	int call;
 
-    call = (int) g_ebx;
+    call = (int) g_rbx;
 
 	switch(call)
 	{
@@ -703,11 +738,11 @@ void sys_execve( struct vm_info *vm )
 	unsigned long temp_addr;
 	char *temp;
 
-	host_p_addr_arg1 = glogic_2_hphysic(vm, vm->vmcb->ds.sel, g_ebx);
+	host_p_addr_arg1 = glogic_2_hphysic(vm, vm->vmcb->ds.sel, g_rbx);
 	arg1 = (char *) host_p_addr_arg1;
 	if (host_p_addr_arg1 != -1) outf("Filename: %s ", arg1);
 
-	host_p_addr_arg2 = glogic_2_hphysic(vm, vm->vmcb->ds.sel, g_ecx);
+	host_p_addr_arg2 = glogic_2_hphysic(vm, vm->vmcb->ds.sel, g_rcx);
 	if (host_p_addr_arg2 != -1) {
 		arg2 = (char **) host_p_addr_arg2;
 
@@ -715,7 +750,7 @@ void sys_execve( struct vm_info *vm )
 
 		while(arg2[i] != NULL)
 		{
-			temp_addr = glogic_2_hphysic(vm, vm->vmcb->ds.sel, (u32) arg2[i]);
+			temp_addr = glogic_2_hphysic(vm, vm->vmcb->ds.sel, (u64) arg2[i]);
 			temp = (char *) temp_addr;
 			if (temp_addr != -1) outf("%s", temp);
 			temp_addr = 0;
@@ -728,12 +763,12 @@ void sys_execve( struct vm_info *vm )
 	i = 0;
 	outf("], key=value pairs[");
 
-	host_p_addr_arg3 = glogic_2_hphysic(vm, vm->vmcb->ds.sel, g_edx);
+	host_p_addr_arg3 = glogic_2_hphysic(vm, vm->vmcb->ds.sel, g_rdx);
 	if (host_p_addr_arg3 != -1) {
 		arg3 = (char **) host_p_addr_arg3;
 		while(arg3[i] != NULL)
 		{
-			temp_addr = glogic_2_hphysic(vm, vm->vmcb->ds.sel, (u32) arg3[i]);
+			temp_addr = glogic_2_hphysic(vm, vm->vmcb->ds.sel, (u64) arg3[i]);
 			temp = (char *) temp_addr;
 			if (temp != (char *)-1) outf("%s", temp);
 			temp_addr = 0;
@@ -753,11 +788,11 @@ void sys_execve( struct vm_info *vm )
 
 void sys_fstat( struct vm_info *vm)
 {
-	char * fname = vm_get_fname_from_id(vm, g_ebx);
-	if (fname == NULL) outf("fd: %x, ", g_ebx);	//arg 1
+	char * fname = vm_get_fname_from_id(vm, g_rbx);
+	if (fname == NULL) outf("fd: %x, ", g_rbx);	//arg 1
 	else outf("filename: %s, ", fname);
 
-	outf("Addr to Stat Structure: %x", g_ecx); //arg 2
+	outf("Addr to Stat Structure: %x", g_rcx); //arg 2
 
 }
 
@@ -800,12 +835,12 @@ void __handle_syscall( struct vm_info *vm )
 		default :
 			for (i = 1; i <= sys_nargs; i++) {
 				switch(i){
-					case 1: arg = g_ebx; break;
-					case 2: arg = g_ecx; break;
-					case 3: arg = g_edx; break;
-					case 4: arg = g_esi; break;
-					case 5: arg = g_edi; break;
-					case 6: arg = g_ebp; break;
+					case 1: arg = g_rbx; break;
+					case 2: arg = g_rcx; break;
+					case 3: arg = g_rdx; break;
+					case 4: arg = g_rsi; break;
+					case 5: arg = g_rdi; break;
+					case 6: arg = g_rbp; break;
 				}
 
 				outf("%x", arg);
@@ -1065,8 +1100,8 @@ void user_enable_intercept(struct vm_info *vm, int flags)
 
 		vm->vmcb->cr_intercepts |= INTRCPT_WRITE_CR3;
 
-		//g_edx points to name of the process that needed to be tracked
-		char * pname = (char *) glogic_2_hphysic(vm, vm->vmcb->ds.sel, g_edx);
+		//g_rdx points to name of the process that needed to be tracked
+		char * pname = (char *) glogic_2_hphysic(vm, vm->vmcb->ds.sel, g_rdx);
 		//outf("add process to tracking list: %s\n", pname);
 		vm_add_tracked_process(vm, pname);
 	}
@@ -1081,7 +1116,7 @@ void user_disable_intercept(struct vm_info *vm, int flags)
 	if (flags & USER_ITC_TASKSWITCH) {
 		outf("User disable taskswitch interception\n");
 
-		char * pname = (char *) glogic_2_hphysic(vm, vm->vmcb->ds.sel, g_edx);
+		char * pname = (char *) glogic_2_hphysic(vm, vm->vmcb->ds.sel, g_rdx);
 		outf("remove process from tracking list: %s\n", pname);
 		vm_remove_tracked_process(vm, pname);
 
@@ -1119,21 +1154,21 @@ void __handle_vm_vmmcall (struct vm_info *vm)
 {
 	vm->vmcb->rip+=3; // skip the vmmcall instruction
 	outf("GOT A VMMCALL!!! eax = %x, ", vm->vmcb->rax);
-	outf("ebx = %x, ", g_ebx);
-	outf("ecx = %x, ", g_ecx);
-	outf("edx = %x\n", g_edx);
+	outf("ebx = %x, ", g_rbx);
+	outf("ecx = %x, ", g_rcx);
+	outf("edx = %x\n", g_rdx);
 
-	switch (g_ebx) {
+	switch (g_rbx) {
 	case USER_CMD_ENABLE:
-		user_enable_intercept(vm, g_ecx);
+		user_enable_intercept(vm, g_rcx);
 		break;
 
 	case USER_CMD_DISABLE:
-		user_disable_intercept(vm, g_ecx);
+		user_disable_intercept(vm, g_rcx);
 		break;
 
 	case USER_CMD_TEST:
-		//user_test(g_ecx, vm);
+		//user_test(g_rcx, vm);
 		break;
 	}
 }
@@ -1144,27 +1179,27 @@ void __handle_vm_vmmcall (struct vm_info *vm)
 //HeeDong - handle WRMSR intercept, mainly for SYSENTER intercept
 void __handle_vm_wrmsr (struct vm_info *vm)
 {
-//	outf( "\n\nvalue of ECX: %x\n\n", g_ecx );
+//	outf( "\n\nvalue of ECX: %x\n\n", g_rcx );
 
 	//HeeDong - write what should have been written without intercept
 	//and increase the rip by 2 because wrmsr instruction is 2 bytes
-	switch (g_ecx)	//g_ecx contains MSR number
+	switch (g_rcx)	//g_rcx contains MSR number
 	{
-	case MSR_SYSENTER_CS:	//sysenter_cs_msr
-		vm->org_sysenter_cs = ((u64) g_edx << 32) + (0xFFFFFFFF & vm->vmcb->rax);
+	case MSR_IA32_SYSENTER_CS:	//sysenter_cs_msr
+		vm->org_sysenter_cs = ((u64) g_rdx << 32) + (0xFFFFFFFF & vm->vmcb->rax);
 		vm->vmcb->sysenter_cs = SYSENTER_CS_FAULT;
 		vm->vmcb->rip += 2;
 		break;
 
 //	case MSR_SYSENTER_ESP: //sysenter_esp_msr
-//		vm->org_sysenter_esp = ((u64) g_edx << 32) + (0xFFFFFFFF & vm->vmcb->rax);
+//		vm->org_sysenter_esp = ((u64) g_rdx << 32) + (0xFFFFFFFF & vm->vmcb->rax);
 //		vm->vmcb->sysenter_esp = vm->org_sysenter_esp;
 ////		vm->vmcb->sysenter_esp = SYSENTER_ESP_FAULT;
 //		vm->vmcb->rip += 2;
 //		break;
 //
 //	case MSR_SYSENTER_EIP: //sysenter_eip_msr
-//		vm->org_sysenter_eip = ((u64) g_edx << 32) + (0xFFFFFFFF & vm->vmcb->rax);
+//		vm->org_sysenter_eip = ((u64) g_rdx << 32) + (0xFFFFFFFF & vm->vmcb->rax);
 //		vm->vmcb->sysenter_eip = vm->org_sysenter_eip;
 ////		vm->vmcb->sysenter_eip = SYSENTER_EIP_FAULT;
 //		vm->vmcb->rip += 2;
@@ -1184,7 +1219,7 @@ void handle_vmexit (struct vm_info *vm)
 {
 //	outf("**** ");
 	outf("**** #VMEXIT - exit code: %x\n", (u32) vm->vmcb->exitcode);
-	print_vmcb_state(vm);
+	print_vmcb_state(vm->vmcb);
 //	print_vmexit_exitcode (vm->vmcb);
 
 //	if (vm->vmcb->exitintinfo.fields.type == EVENT_TYPE_EXCEPTION)

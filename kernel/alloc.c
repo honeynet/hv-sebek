@@ -1,3 +1,12 @@
+/********************************************************************************
+* This software is licensed under the GNU General Public License:
+* http://www.gnu.org/licenses/gpl.html
+*
+* MAVMM Project Group:
+* Anh M. Nguyen, Nabil Schear, Apeksha Godiyal, HeeDong Jung, et al
+*
+*********************************************************************************/
+
 #include "string.h"
 #include "failure.h"
 #include "serial.h"
@@ -9,10 +18,19 @@
 
 
 enum {
-	ALLOC_BITMAP_SHIFT = 6 /* 1 << ALLOC_BITMAP_SHIFT
+	ALLOC_BITMAP_SHIFT = 6 /* 
+					under -m32 option
+					1 << ALLOC_BITMAP_SHIFT
+				  = 1 << 5
+				  = 32
+				  = sizeof ( unsigned long ) * 8 
+				  
+					once ported to 64 bit
+					1 << ALLOC_BITMAP_SHIFT
 				  = 1 << 6
 				  = 64
-				  = sizeof ( unsigned long ) * 8 */
+				  = sizeof( unsigned long ) * 8
+				  */
 };
 
 static struct naive_allocator host_naive_allocator;
@@ -29,13 +47,14 @@ get_alloc_bitmap_offset ( unsigned long pfn )
 	return ( pfn & ( ( 1 << ALLOC_BITMAP_SHIFT ) - 1 ) );
 }
 
-static inline int allocated_in_map (const struct naive_allocator *nalloc, unsigned long pfn)
+static inline int 
+allocated_in_map (const struct naive_allocator *nalloc, unsigned long pfn)
 {
 	const unsigned long *tbl   = nalloc->alloc_bitmap;
 	const unsigned long idx    = get_alloc_bitmap_idx ( pfn );
 	const unsigned long offset = get_alloc_bitmap_offset ( pfn );
 
-	return !! ( tbl [ idx ] & ( 1UL << offset ) );
+	return ( tbl [ idx ] & ( 1UL << offset ) );
 }
 
 static void
@@ -88,7 +107,8 @@ map_free ( struct naive_allocator *nalloc, unsigned long first_page, unsigned lo
 	}
 }
 
-static void free_alloc_bitmap_region ( struct naive_allocator *nalloc, unsigned long _start, unsigned long _end )
+static void 
+free_alloc_bitmap_region ( struct naive_allocator *nalloc, unsigned long _start, unsigned long _end )
 {
 	const unsigned long start = PAGE_UP ( _start );
 	const unsigned long end   = PAGE_DOWN ( _end );
@@ -100,7 +120,8 @@ static void free_alloc_bitmap_region ( struct naive_allocator *nalloc, unsigned 
 	map_free ( nalloc, start >> PAGE_SHIFT, ( end - start ) >> PAGE_SHIFT );
 }
 
-void free_host_alloc_bitmap_region ( unsigned long _start, unsigned long _end )
+void 
+free_host_alloc_bitmap_region ( unsigned long _start, unsigned long _end )
 {
 	free_alloc_bitmap_region(&host_naive_allocator, _start, _end);
 }
@@ -108,7 +129,8 @@ void free_host_alloc_bitmap_region ( unsigned long _start, unsigned long _end )
 //Mark VMM heap area as free in the host bitmap
 // leave all regions outside VMM heap untouched (being marked as allocated)
 // including host executable image, guest allocation bitmap, host allocation bitmap, AND guest memory
-static void init_host_alloc_bitmap ( const struct e820_map *e820, const struct pmem_layout *pml )
+static void 
+init_host_alloc_bitmap ( const struct e820_map *e820, const struct pmem_layout *pml )
 {
 	int i;
 	for (i = 0; i < e820->nr_map; i++ )
@@ -169,7 +191,8 @@ init_alloc_bitmap ( const struct e820_map *e820, struct naive_allocator *nalloc,
 }
 */
 
-void __init naive_memmap_init (const struct e820_map *e820, struct pmem_layout *pml)
+void __init 
+naive_memmap_init (const struct e820_map *e820, struct pmem_layout *pml)
 {
 	extern unsigned long _end; /* _end is the standard ELF symbol */
 
@@ -181,7 +204,7 @@ void __init naive_memmap_init (const struct e820_map *e820, struct pmem_layout *
 	const unsigned long host_ab_start = PAGE_UP (0x8100000);
 
 	/* Allocate space for the allocation bitmap. Each bit in the bitmap specify whether a corresponding
-	 * 4KB page is free or not. (1 = free, 0 = occupied)
+	 * 4KB page is free or not. (0 = free, 1 = occupied)
 	 * Add an extra longword of padding for possible overrun in map_alloc and map_free. ?? */
 	// pml->max_page bits => pml->max_page / 8 bytes
 	const unsigned long mapsize_bytes = pml->max_page / 8;
@@ -206,17 +229,17 @@ void __init naive_memmap_init (const struct e820_map *e820, struct pmem_layout *
 		nalloc->alloc_bitmap = (unsigned long *) host_ab_start;
 		nalloc->max_page = pml->max_page;
 
-		//Mark all as allocated (not available) by default. Note: bitmap = 0 => NOT available
+		//Mark all as allocated (not available) by default. Note: bitmap = 1 => NOT available
 		memset ( nalloc->alloc_bitmap, ~0, mapsize_rounded );
 	}
 
 	outf("\nInitialize VMM memory allocation bitmap:\n");
-	//Now mark VMM heap area as free (=1) in the host bitmap
+	//Now mark VMM heap area as free (=0) in the host bitmap
 	init_host_alloc_bitmap (e820, pml);
 }
 
-static int is_free_contiguous_region (const struct naive_allocator *nalloc,
-		unsigned long pfn, unsigned long nr_pfns)
+static int 
+is_free_contiguous_region (const struct naive_allocator *nalloc, unsigned long pfn, unsigned long nr_pfns)
 {
 	unsigned long i;
 
@@ -231,8 +254,8 @@ static int is_free_contiguous_region (const struct naive_allocator *nalloc,
 // which start at a page number multiple of pfn_align
 // mark these pages as allocated in allocation bitmap, then return the first PAGE NUMBER
 //Note: halt if can not find any suitable region <--Todo: create another less crucial func
-static unsigned long alloc_pages (unsigned long nr_pfns, unsigned long pfn_align,
-		struct naive_allocator * nalloc)
+static unsigned long 
+alloc_pages (unsigned long nr_pfns, unsigned long pfn_align, struct naive_allocator * nalloc)
 {
 	//struct naive_allocator *nalloc = &naive_allocator;
 	unsigned long i;
@@ -256,7 +279,8 @@ static unsigned long alloc_pages (unsigned long nr_pfns, unsigned long pfn_align
 // alloc e820 structure in guest memory, then copy host e820 and hide host memory
 
 // Alloc pages inside host (VMM) memory
-unsigned long alloc_host_pages ( unsigned long nr_pfns, unsigned long pfn_align )
+unsigned long 
+alloc_host_pages ( unsigned long nr_pfns, unsigned long pfn_align )
 {
 	return alloc_pages ( nr_pfns, pfn_align, &host_naive_allocator);
 }

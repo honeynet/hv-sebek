@@ -3,7 +3,7 @@
 
 # set this to 1 if you want to include ttylinux in the boot image.
 TTYLINUX=1
-TINYCORE=1
+TINYCORE=0
 PUPPY=0
 INSERT=0
 DSL=0

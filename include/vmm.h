@@ -7,6 +7,8 @@
 
 #define VMM_CS32	8 	// entry 1 of gdt //Anh - 00001000 => index = 1
 #define VMM_DS32	16 	// entry 2 of gdt //Anh - 00010000 => index = 10
+#define VMM_DS64	56	// entry 7 of gdt
+#define VMM_CS64	40	// entry 5 of gdt
 
 #define GDT_ENTRIES	12 /* ??? */
 
