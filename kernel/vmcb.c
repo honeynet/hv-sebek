@@ -10,6 +10,7 @@
 #include "serial.h"
 #include "failure.h"
 #include "msr.h"
+#include "vm.h"
 #include "vmcb.h"
 #include "svm.h"
 #include "page.h"

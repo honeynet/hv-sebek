@@ -1,4 +1,5 @@
 MAVMM = mavmm
+SOS  = sos
 
 TOP_DIR     = ..
 TOOLS_DIR   = ${TOP_DIR}/tools
@@ -10,7 +11,7 @@ LD      = ld
 MKELF32 = ${TOOLS_DIR}/mkelf32
 
 INCLUDES = -I${INCLUDE_DIR}
-CFLAGS   = -Wall ${INCLUDES} -fPIC -nostdinc -nostdlib -fno-builtin -iwithprefix include -fno-stack-protector
+CFLAGS   = -Wall ${INCLUDES} -fPIC -nostdinc -nostdlib -fno-builtin -iwithprefix include 
 
 # http://linux.die.net/man/1/gcc
 # -Wall: all warnings
@@ -34,17 +35,18 @@ HDRS  = ${INCLUDE_DIR}/types.h ${INCLUDE_DIR}/multiboot.h ${INCLUDE_DIR}/string.
 COMMON_OBJECTS = string.o printf.o failure.o e820.o
 
 # [???] boot.o must be the head of list
-MAVMM_OBJECTS   = boot.o ${COMMON_OBJECTS} cpu.o ../hostfs/mode.o segment.o \
-	         alloc.o svm.o svm_asm.o page.o vmcb.o vm.o setup.o serial.o intercept.o \
-			 vmx.o vmx_asm.o vmcs.o
+MAVMM_OBJECTS   = boot.o ${COMMON_OBJECTS} cpu.o segment.o \
+		  alloc.o svm.o svm_asm.o page.o vmcb.o vm.o setup.o serial.o intercept.o \
+		  vmx.o vmx_asm.o vmcs.o
 
-SOS_OBJECTS    = sos_boot.o # ${COMMON_OBJECTS} sos.o
+SOS_OBJECTS    = sos_boot.o ${COMMON_OBJECTS} sos.o
 
 #load at 128MB, used for both -T and -Ttext options
 #LOAD_BASE_ADDR = 0x8000000
 
 TEXT_OFFSET    = 0xFFFF830000200000
 LOAD_BASE_ADDR = 0x200000
+MAVMM_LD_BASE  = 0x8000000
 
 all: ${MAVMM}
 

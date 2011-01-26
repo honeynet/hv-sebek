@@ -10,6 +10,9 @@ PHDRS
 }
 
 phys = 0x200000; /* 2 MB */
+
+/*phys = 0;*/
+
 SECTIONS
 {
 	.text : AT(phys)

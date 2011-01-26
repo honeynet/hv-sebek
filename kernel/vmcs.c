@@ -181,7 +181,7 @@ void vmx_detect_capability(void)
     }
 }
 
-static struct vmcs *alloc_vmcs ( void )
+struct vmcs *alloc_vmcs ( void )
 {
     struct vmcs *vmcs;
 
@@ -189,6 +189,10 @@ static struct vmcs *alloc_vmcs ( void )
 	//outf("Free page for vmcb: %x\n", pfn);
 	vmcs = (struct vmcs *) (pfn << PAGE_SHIFT);
 	memset (( char *) vmcs, 0, PAGE_SIZE);
+
+	if ( vmcs != NULL ) {
+		vmcs->revision_id = vmcs_revision_id;
+	}
 
 	return vmcs;
 }
@@ -220,9 +224,6 @@ struct vmcs* create_vmcs ( void )
 	
 	/* Alloc a page for vmcs */
 	struct vmcs* vmcs = alloc_vmcs();
-	if ( vmcs != NULL ) {
-		vmcs->revision_id = vmcs_revision_id;
-	}
 	
 	return vmcs;
 }

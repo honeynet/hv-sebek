@@ -29,127 +29,132 @@
 #define GUEST_RIP    0x681e
 #define GUEST_RFLAGS 0x6820
 
-        .align 8
-.globl vmx_asm_vmexit_handler
+	.text
+	.code64
+
+	.globl vmx_asm_vmexit_handler
 vmx_asm_vmexit_handler:
-        push %rdi
-        push %rsi
-        push %rdx
-        push %rcx
-        push %rax
-        push %r8
-        push %r9
-        push %r10
-        push %r11
-        push %rbx
-        push %rbp
-        push %r12
-        push %r13
-        push %r14
-        push %r15
+
+	//call save_guest_states
+
+        popq	%rdi
+        popq	%rsi
+        popq	%rdx
+        popq	%rcx
+        popq	%rax
+        popq	%r8
+        popq	%r9
+        popq	%r10
+        popq	%r11
+        popq	%rbx
+        popq	%rbp
+        popq	%r12
+        popq	%r13
+        popq	%r14
+        popq	%r15
         
-#if 0
-        movq $1,rbx
+	sti
 
-        lea  rip(rsp),rdi
-        mov  $GUEST_RIP,%eax
-        /*VMREAD(UREGS_rip)*/
-        .byte 0x0f,0x78,0x07  /* vmread r(ax),(r(di)) */
-        mov  $GUEST_RSP,%eax
-        VMREAD(UREGS_rsp)
-        mov  $GUEST_RFLAGS,%eax
-        VMREAD(UREGS_eflags)
+	//call vmx_vmexit_handler
 
-        mov  %cr2,r(ax)
-        mov  r(ax),VCPU_hvm_guest_cr2(r(bx))
+.Lvmx_resume:
+	//call	restore_guest_states
 
-        mov  $0xbeef,%ax
-        mov  %ax,UREGS_error_code(r(sp))
-        mov  %ax,UREGS_entry_vector(r(sp))
-        mov  %ax,UREGS_saved_upcall_mask(r(sp))
-        mov  %ax,UREGS_cs(r(sp))
-        mov  %ax,UREGS_ds(r(sp))
-        mov  %ax,UREGS_es(r(sp))
-        mov  %ax,UREGS_fs(r(sp))
-        mov  %ax,UREGS_gs(r(sp))
-        mov  %ax,UREGS_ss(r(sp))
-
-		call_with_regs(vmx_vmexit_handler)
-#endif
-
-.globl vmx_asm_do_vmentry
-vmx_asm_do_vmentry:
-#if 0
-		call vmx_intr_assist
-
-        get_current(bx)
-        cli
-
-        mov  VCPU_processor(r(bx)),%eax
-        shl  $IRQSTAT_shift,r(ax)
-        lea  addr_of(irq_stat),r(dx)
-        cmpl $0,(r(dx),r(ax),1)
-        jnz  .Lvmx_process_softirqs
-
-        testb $0xff,VCPU_vmx_emulate(r(bx))
-        jnz .Lvmx_goto_emulator
-        testb $0xff,VCPU_vmx_realmode(r(bx))
-        jz .Lvmx_not_realmode
-        cmpw $0,VCPU_vm86_seg_mask(r(bx))
-        jnz .Lvmx_goto_emulator
-        call_with_regs(vmx_enter_realmode) 
-
-.Lvmx_not_realmode:
-        call vmx_vmenter_helper
-        mov  VCPU_hvm_guest_cr2(r(bx)),r(ax)
-        mov  r(ax),%cr2
-
-        lea  UREGS_rip(r(sp)),r(di)
-        mov  $GUEST_RIP,%eax
-        /*VMWRITE(UREGS_rip)*/
-        .byte 0x0f,0x79,0x07  /* vmwrite (r(di)),r(ax) */
-        mov  $GUEST_RSP,%eax
-        VMWRITE(UREGS_rsp)
-        mov  $GUEST_RFLAGS,%eax
-        VMWRITE(UREGS_eflags)
-
-        cmpb $0,VCPU_vmx_launched(r(bx))
-        pop  %r15
-        pop  %r14
-        pop  %r13
-        pop  %r12
-        pop  %rbp
-        pop  %rbx
-        pop  %r11
-        pop  %r10
-        pop  %r9
-        pop  %r8
-        pop  %rax
-        pop  %rcx
-        pop  %rdx
-        pop  %rsi
-        pop  %rdi
-        je   .Lvmx_launch
-
-/*.Lvmx_resume:*/
         VMRESUME
         sti
-        call vm_resume_fail
+	
+	/* call vm_resume_fail */
         ud2
+
+	.globl vmx_asm_do_vmentry
+vmx_asm_do_vmentry:
+		
+        cli
+
+        pushq	%r15
+        pushq	%r14
+        pushq	%r13
+        pushq	%r12
+        pushq	%rbp
+        pushq	%rbx
+        pushq	%r11
+        pushq	%r10
+        pushq	%r9
+        pushq	%r8
+        pushq	%rax
+        pushq	%rcx
+        pushq	%rdx
+        pushq	%rsi
+        pushq	%rdi
 
 .Lvmx_launch:
+	//call	init_guest_states
+
         VMLAUNCH
         sti
-        call vm_launch_fail
+        
+	/* call vm_launch_fail */
         ud2
 
-.Lvmx_goto_emulator:
-        sti
-        call_with_regs(vmx_realmode)
-        jmp  vmx_asm_do_vmentry
+#if 0
+init_guest_states:  /* initialize some guest states when we move into it for the first time */
+	movq	$0, first_boot
 
-.Lvmx_process_softirqs:
-        sti
-        call do_softirq
-        jmp  vmx_asm_do_vmentry
+	movq	$0, %rax
+	movq	$0, %rbx
+	movq	$0, %rcx
+	movq	$0x80, %rdx
+	movq	$0, %rsi
+	movq	$0, %rdi
+	movq	$0, %rbp
+	movq	$0, %r8
+	movq	$0, %r9
+	movq	$0, %r10
+	movq	$0, %r11
+	movq	$0, %r12
+	movq	$0, %r13
+	movq	$0, %r14
+	movq	$0, %r15
+
+	ret
+
+restore_guest_states:
+	movq	g_rax, %rax
+	movq	g_rbx, %rbx
+	movq	g_rcx, %rcx
+	movq	g_rdx, %rdx
+	movq	g_rsi, %rsi
+	movq	g_rdi, %rdi
+	movq	g_rbp, %rbp
+	movq	g_r8 , %r8
+	movq	g_r9 , %r9
+	movq	g_r10, %r10
+	movq	g_r11, %r11
+	movq	g_r12, %r12
+	movq	g_r13, %r13
+	movq	g_r14, %r14
+	movq	g_r15, %r15
+    
+	ret
+
+save_guest_states:
+	movq	%rax, g_rax
+	movq	%rbx, g_rbx
+	movq	%rcx, g_rcx
+	movq	%rdx, g_rdx
+	movq	%rsi, g_rsi
+	movq	%rdi, g_rdi
+	movq	%rbp, g_rbp
+	movq	%r8 , g_r8
+	movq	%r9 , g_r9
+	movq	%r10, g_r10
+	movq	%r11, g_r11
+	movq	%r12, g_r12
+	movq	%r13, g_r13
+	movq	%r14, g_r14
+	movq	%r15, g_r15
+	
+	ret
 #endif
+	/* end of file */
+	ud2a

@@ -22,6 +22,25 @@
 #include "types.h"
 #include "user.h"
 
+//HeeDong - variables to store and load registers of Guest
+// we don't need to store eax because eax is stored inside vmcb.rax
+// and it will be loaded / stored with VMLOAD / VMSAVE (remember to use these instructions)
+u64 g_rbp;
+u64 g_rax;
+u64 g_rbx;
+u64 g_rcx;
+u64 g_rdx;
+u64 g_rsi;
+u64 g_rdi;
+u64 g_r8;
+u64 g_r9;
+u64 g_r10;
+u64 g_r11;
+u64 g_r12;
+u64 g_r13;
+u64 g_r14;
+u64 g_r15;
+
 unsigned long create_intercept_table ( unsigned long size )
 {
 	const unsigned long pfn = alloc_host_pages ( size >> PAGE_SHIFT, 1 );

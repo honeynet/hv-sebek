@@ -28,6 +28,8 @@
 #include "vmx.h"
 #include "alloc.h"
 
+static void *vmx_on_region;
+
 /* VMM Setup */
 /* Intel IA-32 Manual 3B 27.5 p. 221 */
 static void enable_vmx (struct cpuinfo_x86 *cpuinfo)
@@ -111,21 +113,27 @@ void __init init_intel (struct vm_info *vm, struct cpuinfo_x86 *cpuinfo)
 	enable_vmx(cpuinfo);
 	
 	/* Create a VMXON region */
-    struct vmcs *vmcs;
-    vmcs = create_vmcs();
-    if ( vmcs == NULL ) {
-    	fatal_failure ("Failed to create VMXON region.\n");
-    	return;
-    }
-    vm->vmcs = vmcs;
-    outf("VMCS location: %x\n", vmcs);
-    
-    /* VMXON */
+	vmx_on_region = alloc_vmcs();
+	if ( vmx_on_region == NULL ) {
+		fatal_failure ("Failed to create VMXON region.\n");
+		return;
+	}
+
     if ( __vmxon( (u64)vm->vmcs ) != 0 ) {
     	fatal_failure("VMXON failure\n");
         return;  
     }
 
+    /* Create a VMCS */
+    struct vmcs *vmcs;
+    vmcs = create_vmcs();
+    if ( vmcs == NULL ) {
+    	fatal_failure ("Failed to create VMCS.\n");
+    	return;
+    }
+    vm->vmcs = vmcs;
+    outf("VMCS location: %x\n", vmcs);
+    
 	/* VMCLEAR */
 	__vmpclear( (u64)vm->vmcs );
 
